@@ -1,0 +1,14 @@
+# Block Python operational caches everywhere
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+
+# Block ANY virtual environment folder named venv anywhere in the project
+**/venv/
+venv/
+backend/venv/
+
+# Lock down credentials and prevent leaks
+**/.env
+.env
+.env.local

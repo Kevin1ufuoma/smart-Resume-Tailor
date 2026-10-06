@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>AI Smart Resume Tailor</title>
+        <script src="https://cloudflare.com"></script>
+        <!-- External CSS Reference -->
+        <link rel="stylesheet" href="style.css">
+    </head>
+
+    <body>
+
+        <header>
+            <h1>✨ AI Resume Tailor</h1>
+            <!-- Functional Theme Selector Toggle -->
+            <button id="theme-toggle" class="theme-toggle-btn">
+                <span id="theme-icon">🌙</span> <span id="theme-text">Dark Mode</span>
+            </button>
+        </header>
+
+        <main>
+            <section class="grid-inputs">
+                <div class="card">
+                    <label for="resume-input">📋 Current Resume Content</label>
+                    <div class="file-upload-wrapper">
+                        <input type="file" id="resume-file" accept=".txt,.md,.pdf">
+                    </div>
+                    <textarea id="resume-input" placeholder="Or paste your raw resume text here..."></textarea>
+                </div>
+        
+                <div class="card">
+                    <label for="job-input">💼 Target Job Description</label>
+                    <div class="file-upload-wrapper">
+                        <input type="file" id="job-file" accept=".txt,.md,.pdf">
+                    </div>
+                    <textarea id="job-input" placeholder="Or paste the job description text details here..."></textarea>
+                </div>
+            </section>
+        
+            <div class="action-area">
+                <button id="generate-btn" class="btn">Tailor My Resume</button>
+            </div>
+        
+            <div id="loading-spinner" class="hidden">
+                <div class="spinner"></div>
+                <p>Gemini is parsing files, processing gaps, and generating matching JSON parameters...</p>
+            </div>
+        
+            <section id="results-section" class="hidden">
+                <div class="score-banner">
+                    <div class="circle-score" id="score-text">0%</div>
+                    <div class="banner-text">
+                        <h3>Job Match Evaluation Score</h3>
+                        <p id="gap-analysis-text" style="font-size: 0.9rem; color: var(--text-muted);"></p>
+                    </div>
+                    <button onclick="window.print()" class="btn btn-success">📥 Print / Save PDF</button>
+                </div>
+        
+                <div class="grid-results">
+                    <div class="card">
+                        <h4>Tailored Professional Summary</h4>
+                        <p id="tailored-summary" class="summary-box"></p>
+        
+                        <h4>Optimized Bullet Points</h4>
+                        <ul id="bullet-points-list" class="bullet-list"></ul>
+                    </div>
+        
+                    <div class="card">
+                        <h3>Recommended Skill Placements</h3>
+                        <div id="skills-container" class="skills-flex"></div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <script>
+            const BACKEND_URL = "/api/tailor";
+
+            // --- LIGHT & DARK THEME ENGINE ---
+            const themeToggleBtn = document.getElementById('theme-toggle');
+            const themeIcon = document.getElementById('theme-icon');
+            const themeText = document.getElementById('theme-text');
+
+            // Check user system preference or previous storage if present
+            if (localStorage.getItem('theme') === 'dark') {
+                document.body.classList.add('dark');
+                themeIcon.innerText = "☀️";
+                themeText.innerText = "Light Mode";
+            }
+
+            themeToggleBtn.addEventListener('click', () => {
+                document.body.classList.toggle('dark');
+
+                if (document.body.classList.contains('dark')) {
+                    localStorage.setItem('theme', 'dark');
+                    themeIcon.innerText = "☀️";
+                    themeText.innerText = "Light Mode";
+                } else {
+                    localStorage.setItem('theme', 'light');
+                    themeIcon.innerText = "🌙";
+                    themeText.innerText = "Dark Mode";
+                }
+            });
+
+
+            // Safely pull the local global reference from window, or wait for loading streams
+            const pdfjs = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
+            if (pdfjs) {
+                pdfjs.GlobalWorkerOptions.workerSrc = 'https://cloudflare.com';
+            }
+
+            // Advanced file stream handler that decodes BOTH plain text and binary PDFs
+            function setupFileParser(fileInputId, textAreaId) {
+                const fileInput = document.getElementById(fileInputId);
+                if (!fileInput) return;
+
+                fileInput.addEventListener('change', function (e) {
+                    const file = e.target.files[0]; // FIX: Explicitly target array index [0] to avoid array reference breaks
+                    if (!file) return;
+
+                    const targetTextArea = document.getElementById(textAreaId);
+                    targetTextArea.value = "⏳ Decoding file content layers, please wait...";
+
+                    // Condition A: Parse PDF
+                    if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+                        const reader = new FileReader();
+                        reader.onload = async function (evt) {
+                            try {
+                                const typedarray = new Uint8Array(evt.target.result);
+
+                                // Highly stable configuration for older stable syntax structures
+                                const loadingTask = pdfjs.getDocument(typedarray);
+                                const pdf = await loadingTask.promise;
+
+                                let extractedText = "";
+
+                                for (let i = 1; i <= pdf.numPages; i++) {
+                                    const page = await pdf.getPage(i);
+                                    const tokenizedText = await page.getTextContent();
+                                    const pageStrings = tokenizedText.items.map(item => item.str);
+                                    extractedText += pageStrings.join(" ") + "\n";
+                                }
+
+                                targetTextArea.value = extractedText.trim();
+
+                            } catch (err) {
+                                console.error("PDF Parsing Exception:", err);
+                                targetTextArea.value = "";
+                                alert("Could not process PDF structure automatically. Please try copying and pasting text fields manually.");
+                            }
+                        };
+                        reader.readAsArrayBuffer(file);
+                    }
+                    // Condition B: Plain text string stream
+                    else {
+                        const reader = new FileReader();
+                        reader.onload = function (evt) {
+                            targetTextArea.value = evt.target.result;
+                        };
+                        reader.readAsText(file);
+                    }
+                });
+            }
+
+            // Initialize file processing streams safely
+            setupFileParser('resume-file', 'resume-input');
+            setupFileParser('job-file', 'job-input');
+
+            // Request execution loop protected with full try/catch wrappers
+            document.getElementById('generate-btn').addEventListener('click', async () => {
+                try {
+                    const resumeText = document.getElementById('resume-input').value.trim();
+                    const jobDescription = document.getElementById('job-input').value.trim();
+
+                    if (!resumeText || !jobDescription) {
+                        alert("Please upload or paste both documents before proceeding!");
+                        return;
+                    }
+
+                    // Show loading animation instantly
+                    document.getElementById('loading-spinner').classList.remove('hidden');
+                    document.getElementById('results-section').classList.add('hidden');
+
+                    const response = await fetch(BACKEND_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            resume_text: resumeText,
+                            job_description: jobDescription
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`Server returned error status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+
+                    // Map elements cleanly to the layout view
+                    document.getElementById('score-text').innerText = `${data.match_percentage || 0}%`;
+                    document.getElementById('gap-analysis-text').innerText = data.gap_analysis || "No major gaps found.";
+                    document.getElementById('tailored-summary').innerText = data.tailored_summary || "";
+
+                    const bulletList = document.getElementById('bullet-points-list');
+                    bulletList.innerHTML = '';
+                    if (data.tailored_bullet_points) {
+                        data.tailored_bullet_points.forEach(bullet => {
+                            const li = document.createElement('li');
+                            li.innerText = bullet;
+                            bulletList.appendChild(li);
+                        });
+                    }
+
+                    const skillsContainer = document.getElementById('skills-container');
+                    skillsContainer.innerHTML = '';
+                    if (data.suggested_skills) {
+                        data.suggested_skills.forEach(skill => {
+                            const span = document.createElement('span');
+                            span.className = "skill-tag";
+                            span.innerText = skill;
+                            skillsContainer.appendChild(span);
+                        });
+                    }
+
+                    document.getElementById('results-section').classList.remove('hidden');
+
+                } catch (error) {
+                    console.error("Execution Exception Framework:", error);
+                    alert(`Error processing layout values: ${error.message}`);
+                } finally {
+                    // Ensure spinner hiding loop is always triggered
+                    document.getElementById('loading-spinner').classList.add('hidden');
+                }
+            });
+
+        </script>
+    </body>
+
+</html>
